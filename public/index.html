@@ -1,0 +1,584 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shared Board</title>
+<style>
+  :root { --bg: #FAF9F5; --grid: #E1DFD8; --panel: #FFFFFF; --ink: #141413; --body: #5C5B56; --muted: #6B6A65; --line: #E8E6DF; --soft: #F0EEE7; --accent: #B4532F;
+          --shadow: 0 1px 2px rgba(20,20,19,.04), 0 8px 24px rgba(20,20,19,.06); }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; color: var(--ink); font: 14px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", Inter, "Segoe UI", system-ui, sans-serif;
+               background: var(--bg) radial-gradient(var(--grid) 1px, transparent 1px) 0 0 / 24px 24px; -webkit-font-smoothing: antialiased; }
+  canvas { display: block; touch-action: none; }
+  button { border: 0; background: transparent; font: inherit; cursor: pointer; color: inherit; }
+
+  #activity { position: fixed; top: 0; left: 0; right: 0; height: 2px; background: #EDEBE4; z-index: 3; }
+  #activity-fill { height: 100%; width: 0; background: var(--ink); transition: width .3s ease; }
+
+  #top { position: fixed; top: 16px; left: 20px; right: 20px; display: flex; justify-content: space-between; align-items: center; gap: 12px; z-index: 2; pointer-events: none; }
+  #top > * { pointer-events: auto; }
+  #brand { font-size: 15px; font-weight: 600; letter-spacing: -.01em; }
+  #status { display: flex; gap: 10px; align-items: center; background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 6px 14px 6px 10px; box-shadow: 0 1px 2px rgba(20,20,19,.04); font-size: 13px; }
+  .nodes { display: flex; gap: 4px; }
+  .nodes i { width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid #A8A69E; transition: background .2s, border-color .2s; }
+  .nodes i.up { background: var(--ink); border-color: var(--ink); }
+  .nodes i.cur { background: var(--accent); border-color: var(--accent); }
+  #status[data-state=bad] #node { color: var(--accent); }
+  #meta { display: none; }
+
+  #toasts { position: fixed; top: 64px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; gap: 8px; z-index: 3; pointer-events: none; width: min(420px, calc(100vw - 32px)); }
+  .toast { display: flex; gap: 12px; align-items: flex-start; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; box-shadow: 0 1px 2px rgba(20,20,19,.04), 0 12px 32px rgba(20,20,19,.08);
+           animation: toast-in .25s cubic-bezier(.2,.8,.2,1); transition: opacity .3s, transform .3s; }
+  .toast.faint { padding: 10px 14px; align-items: center; }
+  .toast.out { opacity: 0; transform: translateY(-4px); }
+  .toast svg { flex-shrink: 0; margin-top: 1px; }
+  .toast .txt { flex-grow: 1; display: flex; flex-direction: column; gap: 2px; }
+  .toast b { font-size: 14px; font-weight: 600; }
+  .toast.faint b { font-weight: 500; font-size: 13px; }
+  .toast span { font-size: 13px; color: var(--body); }
+  .toast small { font-size: 12px; color: var(--muted); white-space: nowrap; }
+  @keyframes toast-in { from { opacity: 0; transform: translateY(-6px); } }
+
+  #dock { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); display: flex; gap: 4px; align-items: center; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 6px; box-shadow: var(--shadow); z-index: 2; }
+  #dock [data-tool] { height: 36px; padding: 0 14px; border-radius: 9px; font-size: 13px; font-weight: 500; color: var(--body); transition: background .15s, color .15s; }
+  #dock [data-tool]:hover { background: #F5F3EE; }
+  #dock [data-tool].on { background: var(--soft); color: var(--ink); }
+  .sep { width: 1px; height: 20px; background: var(--line); margin: 0 6px; }
+  .chip { width: 22px; height: 22px; border-radius: 50%; margin: 0 1px; transition: box-shadow .15s, transform .15s; }
+  .chip:hover { transform: scale(1.08); }
+  .chip.on { box-shadow: 0 0 0 2px var(--panel), 0 0 0 3.5px var(--ink); }
+  #right { display: flex; gap: 12px; align-items: center; }
+  #people { display: flex; }
+  .av { width: 28px; height: 28px; border-radius: 50%; color: #FFFFFF; font-size: 12px; font-weight: 600; display: flex; align-items: center; justify-content: center;
+        border: 2px solid var(--bg); margin-left: -8px; padding: 0; }
+  .av:first-child { margin-left: 0; }
+  .av.more { background: var(--line); color: var(--ink); font-size: 11px; }
+
+  #cursors { position: fixed; inset: 0; pointer-events: none; z-index: 1; overflow: hidden; }
+  .cursor { position: absolute; left: 0; top: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; transition: transform 80ms linear, opacity .2s; }
+  .cursor.hidden { opacity: 0; }
+  .cursor span { margin-left: 12px; color: #FFFFFF; font-size: 12px; font-weight: 500; padding: 3px 8px; border-radius: 6px; white-space: nowrap; }
+
+  #delivery { position: fixed; left: 0; top: 0; z-index: 1; pointer-events: none; display: flex; gap: 8px; align-items: center; background: var(--panel); border: 1px solid var(--line);
+              border-radius: 999px; padding: 4px 10px; font-size: 12px; color: var(--body); box-shadow: 0 1px 2px rgba(20,20,19,.04), 0 4px 12px rgba(20,20,19,.05); opacity: 0; transition: opacity .2s; }
+  #delivery.show { opacity: 1; }
+  #delivery .segs { display: flex; gap: 3px; }
+  #delivery .segs i { width: 14px; height: 3px; border-radius: 2px; background: #E1DFD8; transition: background .2s; }
+  #delivery .segs i.on { background: var(--ink); }
+  #delivery.done { color: var(--ink); }
+  #delivery.done .segs i { background: var(--accent); }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  @media (prefers-reduced-motion: reduce) { .toast { animation: none; } }
+</style>
+</head>
+<body>
+<div id="activity" aria-hidden="true"><div id="activity-fill"></div></div>
+<header id="top">
+  <div id="brand">Shared Board</div>
+  <div id="right">
+    <div id="people"></div>
+    <div id="status" data-state="warn" role="status">
+      <span class="nodes" aria-hidden="true"><i data-port="8001"></i><i data-port="8002"></i><i data-port="8003"></i></span>
+      <span id="node">Connecting…</span><span id="meta"></span>
+    </div>
+  </div>
+</header>
+<div id="cursors" aria-hidden="true"></div>
+<div id="delivery" aria-live="polite"><span class="segs"><i></i><i></i><i></i></span><span id="delivery-text"></span></div>
+<div id="toasts" aria-live="polite"></div>
+<div id="dock">
+  <button data-tool="rect" class="on">Rectangle</button>
+  <button data-tool="line">Line</button>
+  <div class="sep"></div>
+  <button class="chip on" data-color="#141413" style="background:#141413" aria-label="Black"></button>
+  <button class="chip" data-color="#B4532F" style="background:#B4532F" aria-label="Clay"></button>
+  <button class="chip" data-color="#3D6A99" style="background:#3D6A99" aria-label="Blue"></button>
+  <button class="chip" data-color="#6B7B4F" style="background:#6B7B4F" aria-label="Olive"></button>
+  <button class="chip" data-color="#8A6BBE" style="background:#8A6BBE" aria-label="Violet"></button>
+  <button class="chip" data-color="#A8A69E" style="background:#A8A69E" aria-label="Grey"></button>
+  <input id="color" type="hidden" value="#141413">
+</div>
+<canvas id="c"></canvas>
+<script>
+const PORTS = [8001, 8002, 8003];
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const shapes = new Map(); // id -> {x,y,w,h,color,_t,_o}
+const lines = new Map();  // id -> {points,color}
+let tool = 'rect';
+let dirty = true;
+
+// ---------- connection with failover ----------
+let ws = null, portIdx = Math.max(0, PORTS.indexOf(Number(location.port)));
+if (!PORTS.includes(Number(location.port))) portIdx = Math.floor(Math.random() * PORTS.length);
+let lastMsg = 0;
+const pendingIds = new Map(); // op key -> op (resent after reconnect)
+const host = location.hostname || 'localhost';
+
+function setStatus(state) {
+  const port = PORTS[portIdx % PORTS.length];
+  document.getElementById('status').dataset.state = state;
+  document.getElementById('node').textContent =
+    state === 'ok' ? `Node ${PORTS.indexOf(port) + 1}` : state === 'bad' ? 'Reconnecting…' : 'Connecting…';
+  onConnState(state, port);
+}
+
+function connect() {
+  const port = PORTS[portIdx % PORTS.length];
+  setStatus('warn', `connecting to :${port}…`);
+  const sock = new WebSocket(`ws://${host}:${port}/`);
+  ws = sock;
+  let opened = false;
+  sock.onopen = () => {
+    opened = true; lastMsg = Date.now();
+    setStatus('ok', `node :${port}`);
+    for (const op of pendingIds.values()) sock.send(JSON.stringify(op));
+  };
+  sock.onmessage = e => { lastMsg = Date.now(); onMessage(JSON.parse(e.data)); };
+  sock.onclose = () => {
+    if (ws !== sock) return;
+    ws = null;
+    portIdx++; // try the next node
+    setStatus('bad', 'reconnecting…');
+    setTimeout(connect, opened ? 50 : 300);
+  };
+  sock.onerror = () => {};
+}
+setInterval(() => {
+  if (ws && ws.readyState === 1) {
+    ws.send('{"type":"ping"}');
+    if (Date.now() - lastMsg > 4000) ws.close(); // node hung: fail over
+  }
+}, 1500);
+
+function send(op, key) {
+  if (key) pendingIds.set(key, op);
+  if (ws && ws.readyState === 1) ws.send(JSON.stringify(op));
+}
+
+const newer = (a, b) => !b || b._t === undefined || a._t > b._t || (a._t === b._t && a._o > b._o);
+
+function onMessage(m) {
+  const ty = String(m.type || '').toLowerCase();
+  if (ty === 'pong') return;
+  fx(m, ty);
+  if (ty === 'state') {
+    shapes.clear(); lines.clear();
+    for (const s of m.shapes) shapes.set(s.id, s);
+    for (const l of m.lines) lines.set(l.id, l);
+    document.getElementById('meta').textContent = m.node ? `(${m.node})` : '';
+  } else if (ty === 'create' || ty === 'move') {
+    pendingIds.delete(ty + ':' + m.id);
+    const cur = shapes.get(m.id);
+    if (!cur) shapes.set(m.id, m);
+    else if (newer(m, cur)) {
+      // Echo of my own move: keep the position I already show, just take the timestamp.
+      if ((ty === 'move' && m.by === CID) || (dragging && dragging.id === m.id)) { cur._t = m._t; cur._o = m._o; }
+      else Object.assign(cur, m);
+    } else for (const k in m) if (!(k in cur)) cur[k] = m[k];
+  } else if (ty === 'line') {
+    const p = pendingIds.get('line:' + m.id);
+    if (p && (m.points || []).length >= p.points.length) pendingIds.delete('line:' + m.id);
+    const cur = lines.get(m.id);
+    if (!cur || newer(m, cur) || (m.points || []).length > (cur.points || []).length) lines.set(m.id, m);
+  } else return;
+  dirty = true;
+}
+
+// ---------- drawing ----------
+function resize() {
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = innerWidth * dpr; canvas.height = innerHeight * dpr;
+  canvas.style.width = innerWidth + 'px'; canvas.style.height = innerHeight + 'px';
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  dirty = true;
+}
+addEventListener('resize', resize); resize();
+
+function render() {
+  if (dirty) {
+    dirty = false;
+    const now = performance.now();
+    ctx.clearRect(0, 0, innerWidth, innerHeight);
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    for (const l of lines.values()) if (!stroke || l.id !== stroke.id) drawLine(l.points, l.color);
+    if (stroke) drawLine(stroke.points, stroke.color);
+    for (const s of shapes.values()) {
+      if (s.x === undefined) continue;
+      // Remote moves glide toward their target instead of jumping between updates.
+      if (s.rx === undefined || (dragging && dragging.id === s.id)) { s.rx = s.x; s.ry = s.y; }
+      else {
+        s.rx += (s.x - s.rx) * 0.35; s.ry += (s.y - s.ry) * 0.35;
+        if (Math.abs(s.x - s.rx) < 0.5 && Math.abs(s.y - s.ry) < 0.5) { s.rx = s.x; s.ry = s.y; }
+        else dirty = true;
+      }
+      drawShape(s, now);
+    }
+    drawFx(now);
+    if (draft) {
+      ctx.setLineDash([4, 4]); ctx.strokeStyle = draft.color; ctx.lineWidth = 1.5;
+      roundRect(draft.x, draft.y, draft.w, draft.h); ctx.stroke(); ctx.setLineDash([]);
+    }
+  }
+  requestAnimationFrame(render);
+}
+function drawLine(pts, color) {
+  if (!Array.isArray(pts) || pts.length < 1) return;
+  ctx.strokeStyle = color || '#141413'; ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  const p0 = pt(pts[0]); ctx.moveTo(p0[0], p0[1]);
+  for (let i = 1; i < pts.length; i++) { const p = pt(pts[i]); ctx.lineTo(p[0], p[1]); }
+  if (pts.length === 1) ctx.lineTo(p0[0] + 0.1, p0[1]);
+  ctx.stroke();
+}
+const pt = p => Array.isArray(p) ? p : [p.x, p.y];
+requestAnimationFrame(render);
+
+// ---------- input ----------
+const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+const CID = uid(); // this tab, so it can recognise echoes of its own moves
+let dragging = null, draft = null, stroke = null, lastMoveSent = 0, lastLineSent = 0;
+
+function hit(x, y) {
+  const all = [...shapes.values()];
+  for (let i = all.length - 1; i >= 0; i--) {
+    const s = all[i], w = s.w || 40, h = s.h || 30;
+    if (s.x !== undefined && x >= s.x && x <= s.x + w && y >= s.y && y <= s.y + h) return s;
+  }
+  return null;
+}
+
+canvas.addEventListener('pointerdown', e => {
+  canvas.setPointerCapture(e.pointerId);
+  const x = e.clientX, y = e.clientY, color = document.getElementById('color').value;
+  const s = hit(x, y);
+  if (s) { dragging = { id: s.id, dx: x - s.x, dy: y - s.y }; return; }
+  if (tool === 'rect') draft = { x, y, w: 0, h: 0, x0: x, y0: y, color };
+  else { stroke = { id: uid(), points: [[x, y]], color }; sendLine(); }
+});
+canvas.addEventListener('pointermove', e => {
+  const x = e.clientX, y = e.clientY;
+  if (dragging) {
+    const s = shapes.get(dragging.id); if (!s) return;
+    s.x = Math.round(x - dragging.dx); s.y = Math.round(y - dragging.dy); dirty = true;
+    const now = performance.now();
+    if (now - lastMoveSent > 16) { lastMoveSent = now; sendMove(s); }
+  } else if (draft) {
+    draft.x = Math.min(x, draft.x0); draft.y = Math.min(y, draft.y0);
+    draft.w = Math.abs(x - draft.x0); draft.h = Math.abs(y - draft.y0); dirty = true;
+  } else if (stroke) {
+    let pts = e.getCoalescedEvents ? e.getCoalescedEvents() : [];
+    if (!pts.length) pts = [e];
+    for (const c of pts) stroke.points.push([Math.round(c.clientX), Math.round(c.clientY)]);
+    dirty = true;
+    // Stream the stroke while drawing; each update carries the whole line, latest wins.
+    const now = performance.now();
+    if (now - lastLineSent > 30) { lastLineSent = now; sendLine(); }
+  }
+});
+function sendLine() {
+  send({ type: 'line', id: stroke.id, points: stroke.points.slice(), color: stroke.color }, 'line:' + stroke.id);
+}
+canvas.addEventListener('pointerup', () => {
+  if (dragging) {
+    const s = shapes.get(dragging.id); dragging = null;
+    if (s) sendMove(s);
+  } else if (draft) {
+    if (draft.w > 3 && draft.h > 3) {
+      const id = uid();
+      const op = { type: 'create', id, shape: 'rect', x: Math.round(draft.x), y: Math.round(draft.y), w: Math.round(draft.w), h: Math.round(draft.h), color: draft.color };
+      shapes.set(id, { ...op });
+      send(op, 'create:' + id);
+    }
+    draft = null; dirty = true;
+  } else if (stroke) {
+    sendLine();
+    lines.set(stroke.id, { id: stroke.id, points: stroke.points, color: stroke.color });
+    stroke = null; dirty = true;
+  }
+});
+function sendMove(s) {
+  myMoves.set(s.id, { at: performance.now(), x: s.x, y: s.y });
+  send({ type: 'move', id: s.id, x: s.x, y: s.y, by: CID }, 'move:' + s.id);
+}
+
+document.querySelectorAll('[data-tool]').forEach(b => b.onclick = () => {
+  tool = b.dataset.tool;
+  document.querySelectorAll('[data-tool]').forEach(x => x.classList.toggle('on', x === b));
+});
+document.querySelectorAll('.chip').forEach(b => b.onclick = () => {
+  document.getElementById('color').value = b.dataset.color;
+  document.querySelectorAll('.chip').forEach(x => x.classList.toggle('on', x === b));
+});
+
+// ---------- feedback: motion, remote highlights, conflicts, failover, activity ----------
+const calm = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const bornAt = new Map();  // shape id -> when it first appeared (0 = no entrance animation)
+const rings = new Map();   // shape id -> when a remote change landed on it
+const ghosts = [];         // overwritten positions fading out
+const myMoves = new Map(); // shape id -> my last move {at, x, y}
+let opsSeen = 0, rate = 0, lastConflictNote = 0;
+
+function roundRect(x, y, w, h, r = 6) {
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(x, y, w, h, Math.min(r, w / 2, h / 2)); else ctx.rect(x, y, w, h);
+}
+function drawShape(s, now) {
+  const w = s.w || 40, h = s.h || 30, color = s.color || '#888';
+  if (!bornAt.has(s.id)) bornAt.set(s.id, calm ? 0 : now);
+  const p = Math.min(1, (now - bornAt.get(s.id)) / 280);
+  if (p < 1) dirty = true;
+  const back = 1 + 2.7 * Math.pow(p - 1, 3) + 1.7 * Math.pow(p - 1, 2); // ease-out-back
+  const sc = 0.92 + 0.08 * back, lifted = dragging && dragging.id === s.id;
+  ctx.save();
+  ctx.translate(s.rx + w / 2, s.ry + h / 2); ctx.scale(sc, sc); ctx.translate(-w / 2, -h / 2);
+  if (lifted) { ctx.shadowColor = 'rgba(20,20,19,.14)'; ctx.shadowBlur = 24; ctx.shadowOffsetY = 8; }
+  roundRect(0, 0, w, h);
+  ctx.fillStyle = '#FFFFFF'; ctx.globalAlpha = lifted ? 1 : 0.6; ctx.fill();
+  ctx.shadowColor = 'transparent';
+  ctx.fillStyle = color; ctx.globalAlpha = 0.07; ctx.fill();
+  ctx.globalAlpha = 1; ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.stroke();
+  ctx.restore();
+}
+function drawFx(now) {
+  for (const [id, at] of rings) {
+    const s = shapes.get(id), p = (now - at) / 700;
+    if (!s || p >= 1 || s.rx === undefined) { rings.delete(id); continue; }
+    const g = 2 + p * 6;
+    ctx.globalAlpha = 0.35 * (1 - p); ctx.strokeStyle = s.color || '#888'; ctx.lineWidth = 1.5;
+    roundRect(s.rx - g, s.ry - g, (s.w || 40) + 2 * g, (s.h || 30) + 2 * g, 6 + g); ctx.stroke();
+    dirty = true;
+  }
+  for (let i = ghosts.length - 1; i >= 0; i--) {
+    const gh = ghosts[i], p = (now - gh.at) / 450;
+    if (p >= 1) { ghosts.splice(i, 1); continue; }
+    ctx.globalAlpha = 0.5 * (1 - p); ctx.strokeStyle = gh.color; ctx.lineWidth = 1.5; ctx.setLineDash([4, 4]);
+    roundRect(gh.x, gh.y, gh.w, gh.h); ctx.stroke(); ctx.setLineDash([]);
+    dirty = true;
+  }
+  if (deliv) {
+    const s = shapes.get(deliv.id);
+    if (s && s.rx !== undefined) delivEl.style.transform = `translate(${Math.round(s.rx)}px, ${Math.round(s.ry + (s.h || 30) + 10)}px)`;
+    if (deliv.done && !calm) {
+      const p = (now - deliv.done) / 900;
+      if (s && p < 1) {
+        const g = 3 + p * 3;
+        ctx.globalAlpha = 1 - p; ctx.strokeStyle = '#B4532F'; ctx.lineWidth = 1;
+        roundRect(s.rx - g, s.ry - g, (s.w || 40) + 2 * g, (s.h || 30) + 2 * g, 6 + g); ctx.stroke();
+        dirty = true;
+      }
+    }
+  }
+  ctx.globalAlpha = 1;
+}
+
+// ---------- delivery: how many nodes hold my latest edit ----------
+// The echo carries (origin _o, seq _s); a node has the op once its /vector[_o] >= _s.
+const delivEl = document.getElementById('delivery');
+let deliv = null, delivBusy = false;
+function trackDelivery(m) {
+  if (m._s === undefined || !m._o) return;
+  deliv = { id: m.id, o: m._o, s: m._s, count: 1, at: performance.now(), done: 0 };
+  paintDelivery(); pollDelivery();
+}
+function paintDelivery() {
+  if (!deliv) { delivEl.classList.remove('show'); return; } // keep the last text while it fades
+  const n = deliv.count;
+  delivEl.querySelectorAll('.segs i').forEach((i, k) => i.classList.toggle('on', k < n));
+  delivEl.classList.toggle('done', n >= PORTS.length);
+  document.getElementById('delivery-text').textContent =
+    n >= PORTS.length ? `Synced to all ${PORTS.length} nodes` : `Saved on ${n} of ${PORTS.length} nodes`;
+  delivEl.classList.toggle('show', !!deliv);
+  dirty = true;
+}
+async function pollDelivery() {
+  if (!deliv || deliv.done || delivBusy) return;
+  const d = deliv; delivBusy = true;
+  const counts = await Promise.all(PORTS.map(async p => {
+    const ac = new AbortController(), t = setTimeout(() => ac.abort(), 1000);
+    try { const v = await (await fetch(`${location.protocol === 'https:' ? 'https' : 'http'}://${host}:${p}/vector`, { signal: ac.signal, cache: 'no-store' })).json(); return (v[d.o] || 0) >= d.s; }
+    catch { return false; } finally { clearTimeout(t); }
+  }));
+  delivBusy = false;
+  if (deliv !== d) return;
+  d.count = Math.max(d.count, counts.filter(Boolean).length);
+  if (d.count >= PORTS.length) d.done = performance.now();
+  paintDelivery();
+}
+setInterval(() => {
+  if (!deliv) return;
+  const now = performance.now();
+  if ((deliv.done && now - deliv.done > 1600) || now - deliv.at > 10000) { deliv = null; paintDelivery(); return; }
+  pollDelivery();
+}, 300);
+
+// ---------- presence: live cursors and who's here ----------
+const PEOPLE_COLORS = ['#3D6A99', '#B4532F', '#6B7B4F', '#8A6BBE', '#141413'];
+const me = { name: '', color: PEOPLE_COLORS[Math.floor(Math.random() * PEOPLE_COLORS.length)] };
+try { me.name = localStorage.getItem('board-name') || ''; } catch {}
+if (!me.name) me.name = 'Guest ' + (10 + Math.floor(Math.random() * 90));
+const people = new Map(); // cid -> {name, color, seen, el}
+let myCursor = { x: 0, y: 0, hidden: true }, lastCursorSent = 0;
+
+function sendCursor() {
+  lastCursorSent = performance.now();
+  if (ws && ws.readyState === 1) send({ type: 'cursor', cid: CID, name: me.name, color: me.color, ...myCursor });
+}
+addEventListener('pointermove', e => {
+  myCursor = { x: Math.round(e.clientX), y: Math.round(e.clientY), hidden: false };
+  if (performance.now() - lastCursorSent > 40) sendCursor();
+});
+document.addEventListener('pointerleave', () => { myCursor.hidden = true; sendCursor(); });
+addEventListener('blur', () => { myCursor.hidden = true; sendCursor(); });
+setInterval(() => { if (performance.now() - lastCursorSent > 4000) sendCursor(); }, 1000);
+
+function onCursor(m) {
+  if (m.cid === CID) return;
+  let p = people.get(m.cid);
+  if (m.gone) { if (p) { p.el.remove(); people.delete(m.cid); renderPeople(); } return; }
+  if (!p) {
+    p = { el: document.createElement('div') };
+    p.el.className = 'cursor';
+    p.el.innerHTML = '<svg width="18" height="18" viewBox="0 0 18 18"><path d="M2 1.5 15.5 9 9 10.5 6.5 16.5Z" stroke="#FFFFFF" stroke-width="1.2"/></svg><span></span>';
+    document.getElementById('cursors').append(p.el);
+    people.set(m.cid, p);
+  }
+  const changed = p.name !== m.name || p.color !== m.color;
+  p.name = m.name || 'Guest'; p.color = m.color || '#141413'; p.seen = performance.now();
+  p.el.querySelector('path').setAttribute('fill', p.color);
+  const label = p.el.querySelector('span');
+  label.textContent = p.name; label.style.background = p.color;
+  p.el.classList.toggle('hidden', !!m.hidden);
+  p.el.style.transform = `translate(${m.x}px, ${m.y}px)`;
+  if (changed) renderPeople();
+}
+setInterval(() => {
+  const now = performance.now();
+  for (const [cid, p] of people) if (now - p.seen > 12000) { p.el.remove(); people.delete(cid); }
+  renderPeople();
+}, 3000);
+
+function avatar(tag, name, color) {
+  const el = document.createElement(tag);
+  el.className = 'av'; el.style.background = color; el.textContent = (name.trim()[0] || '?').toUpperCase(); el.title = name;
+  return el;
+}
+let peopleKey = '';
+function renderPeople() {
+  const others = [...people.values()];
+  const key = me.name + me.color + others.map(p => p.name + p.color).join();
+  if (key === peopleKey) return;
+  peopleKey = key;
+  const box = document.getElementById('people');
+  box.replaceChildren();
+  const mine = avatar('button', me.name, me.color);
+  mine.title = `${me.name} (you) · click to rename`; mine.setAttribute('aria-label', `You, ${me.name}. Rename`);
+  mine.onclick = () => {
+    const n = (prompt('Your name on the board', me.name) || '').trim().slice(0, 40);
+    if (!n) return;
+    me.name = n;
+    try { localStorage.setItem('board-name', n); } catch {}
+    renderPeople(); sendCursor();
+  };
+  box.append(mine);
+  for (const p of others.slice(0, 4)) box.append(avatar('span', p.name, p.color));
+  if (others.length > 4) { const more = avatar('span', '', ''); more.className = 'av more'; more.textContent = `+${others.length - 4}`; box.append(more); }
+}
+renderPeople();
+
+// Called for every message before it is applied, so it can see the previous state.
+function fx(m, ty) {
+  if (ty === 'cursor') { onCursor(m); return; }
+  opsSeen++;
+  if (ty === 'state') { for (const s of m.shapes || []) if (!bornAt.has(s.id)) bornAt.set(s.id, 0); return; }
+  const now = performance.now();
+  if (ty !== 'create' && ty !== 'move') return;
+  const cur = shapes.get(m.id), mineCreate = ty === 'create' && pendingIds.has('create:' + m.id);
+  if (mineCreate || m.by === CID) {
+    if (!(dragging && dragging.id === m.id)) trackDelivery(m);
+    return;
+  }
+  if (!calm && cur && !rings.has(m.id)) rings.set(m.id, now);
+  // Someone else's move overtook one I just made on the same shape: fade my position out and say so.
+  const mine = myMoves.get(m.id);
+  if (ty === 'move' && cur && mine && now - mine.at < 1500 && newer(m, cur) && !(dragging && dragging.id === m.id)) {
+    ghosts.push({ x: mine.x, y: mine.y, w: cur.w || 40, h: cur.h || 30, color: cur.color || '#888', at: now });
+    myMoves.delete(m.id);
+    if (now - lastConflictNote > 4000) {
+      lastConflictNote = now;
+      toast('Another edit was kept', 'Someone moved this shape right after you. Every node keeps the later move.');
+    }
+  }
+}
+
+const ICON_OK = '<svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="8.5" fill="none" stroke="#B4532F" stroke-width="1.5"/><path d="M6.5 10.2 9 12.6 13.6 7.6" fill="none" stroke="#B4532F" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const ICON_INFO = '<svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="8.5" fill="none" stroke="#141413" stroke-width="1.5"/><path d="M10 9v5M10 6.2v.1" stroke="#141413" stroke-width="1.6" stroke-linecap="round"/></svg>';
+function toast(title, detail, meta, faint) {
+  const el = document.createElement('div');
+  el.className = 'toast' + (faint ? ' faint' : '');
+  if (!faint) el.insertAdjacentHTML('beforeend', title.startsWith('Reconnected') ? ICON_OK : ICON_INFO);
+  const txt = document.createElement('div'); txt.className = 'txt';
+  const b = document.createElement('b'); b.textContent = title; txt.append(b);
+  if (detail) { const d = document.createElement('span'); d.textContent = detail; txt.append(d); }
+  el.append(txt);
+  if (meta) { const s = document.createElement('small'); s.textContent = meta; el.append(s); }
+  const box = document.getElementById('toasts');
+  box.append(el);
+  while (box.children.length > 3) box.firstChild.remove();
+  setTimeout(() => { el.classList.add('out'); setTimeout(() => el.remove(), 300); }, faint ? 2500 : 4000);
+}
+
+// Failover notice: one calm message once the board is connected again.
+let curPort = 0, lastOkPort = 0, lostAt = 0;
+function onConnState(state, port) {
+  if (state === 'ok') {
+    if (lostAt) {
+      const ms = Math.round(performance.now() - lostAt), n = pendingIds.size;
+      toast(`Reconnected to Node ${PORTS.indexOf(port) + 1}`,
+        `Node ${PORTS.indexOf(lastOkPort) + 1} stopped responding. ` +
+        (n ? `${n} unsent edit${n === 1 ? ' was' : 's were'} re-sent.` : 'No edits were waiting.'),
+        `${ms} ms`);
+    }
+    lostAt = 0; curPort = lastOkPort = port;
+    setTimeout(sendCursor, 0); // announce myself on the new node (ws is open by now)
+  } else {
+    if (state === 'bad' && lastOkPort && !lostAt) lostAt = performance.now();
+    curPort = 0;
+  }
+  paintNodes();
+}
+
+// Node dots: poll /health on each port; a node coming back gets a quiet note.
+const nodeUp = {};
+function paintNodes() {
+  document.querySelectorAll('.nodes i').forEach(i => {
+    const p = Number(i.dataset.port);
+    i.className = p === curPort ? 'cur' : nodeUp[p] ? 'up' : '';
+  });
+  const up = PORTS.filter(p => nodeUp[p] || p === curPort).length;
+  document.getElementById('status').title = `${up} of ${PORTS.length} nodes online`;
+}
+async function pollHealth() {
+  await Promise.all(PORTS.map(async p => {
+    const ac = new AbortController(), t = setTimeout(() => ac.abort(), 1500);
+    let ok = false;
+    try { ok = (await fetch(`${location.protocol === 'https:' ? 'https' : 'http'}://${host}:${p}/health`, { signal: ac.signal, cache: 'no-store' })).ok; } catch {}
+    clearTimeout(t);
+    if (ok && nodeUp[p] === false) toast(`Node ${PORTS.indexOf(p) + 1} is back online`, '', '', true);
+    nodeUp[p] = ok;
+  }));
+  paintNodes();
+}
+pollHealth(); setInterval(pollHealth, 2000);
+
+// Activity hairline: ops per second across everyone, smoothed.
+setInterval(() => {
+  rate = rate * 0.6 + opsSeen * 4 * 0.4; opsSeen = 0;
+  document.getElementById('activity-fill').style.width = Math.min(100, rate / 30 * 100) + '%';
+}, 250);
+
+connect();
+</script>
+</body>
+</html>

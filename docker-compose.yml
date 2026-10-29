@@ -1,0 +1,25 @@
+x-node: &node
+  build: .
+  image: shared-board-node
+  restart: unless-stopped
+  stop_grace_period: 5s
+
+services:
+  node1:
+    <<: *node
+    container_name: node1
+    environment: { NODE_ID: node1, PORT: "8000", PEERS: "node2:8000,node3:8000", DATA_DIR: /data }
+    ports: ["8001:8000"]
+    volumes: ["./data/node1:/data"]
+  node2:
+    <<: *node
+    container_name: node2
+    environment: { NODE_ID: node2, PORT: "8000", PEERS: "node1:8000,node3:8000", DATA_DIR: /data }
+    ports: ["8002:8000"]
+    volumes: ["./data/node2:/data"]
+  node3:
+    <<: *node
+    container_name: node3
+    environment: { NODE_ID: node3, PORT: "8000", PEERS: "node1:8000,node2:8000", DATA_DIR: /data }
+    ports: ["8003:8000"]
+    volumes: ["./data/node3:/data"]
