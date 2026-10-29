@@ -30,7 +30,7 @@ Any Linux box with Docker works the same way (Hetzner included).
    ```
 4. **Run:**
    ```bash
-   git clone <this repo> board && cd board
+   git clone https://github.com/ImmortalBobik/shared-board.git board && cd board
    docker compose up -d --build
    curl localhost:8001/health
    ```
